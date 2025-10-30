@@ -13,9 +13,6 @@ variables:
   azureSubscription: AzureEchobeacon
   DB_NAME: echobeacon
   DB_USER: echobeacon
-  DB_PASSWORD: echobeacon
-  # URL de conexão com o banco (FQDN será gerado pelo build.sh)
-  SPRING_DATASOURCE_URL: jdbc:postgresql://aci-db-echobeacon-rm556859.eastus.azurecontainer.io:5432/echobeacon
 
 stages:
   - stage: Build
