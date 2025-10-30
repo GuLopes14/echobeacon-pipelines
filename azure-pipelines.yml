@@ -101,8 +101,8 @@ stages:
                 echo "Using resource group: $(RESOURCE_GROUP) in $(AZURE_LOCATION)"
 
                 # Obter credenciais do ACR existente
-                ACR_USERNAME=$(az acr credential show -n "$(ACR_NAME)" --query username -o tsv)
-                ACR_PASSWORD=$(az acr credential show -n "$(ACR_NAME)" --query "passwords[0].value" -o tsv)
+                ACR_USERNAME=$(ACR_USERNAME)
+                ACR_PASSWORD=$(ACR_PASSWORD)
 
                 # Nome do container e DNS
                 APP_CONTAINER_NAME="aci-app-echobeacon-rm$(RM)"
