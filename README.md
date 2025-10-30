@@ -194,60 +194,221 @@ az group delete --name rg-cp4-rm556859 --yes --no-wait
 
 ## 🧩 Pipelines CI/CD (Azure DevOps)
 
-Este repositório contém um pipeline YAML em `azure-pipelines.yml` que implementa:
+Este repositório contém um pipeline YAML completo em `azure-pipelines.yml` que implementa CI/CD automatizado:
 
-- CI: build + testes automáticos (Gradle), publicação do artefato (JAR) e push da imagem Docker para o ACR.
-- CD: deploy automático no Azure Container Instances (ACI) após a geração do artefato.
+### 📊 Visão Geral do Pipeline
 
-### 1) Pré-requisitos no Azure DevOps
+**CI (Continuous Integration):**
+- Build com Gradle (task oficial `Gradle@4`)
+- Execução automática de testes JUnit
+- Publicação de resultados de testes no Azure DevOps
+- Publicação do artefato JAR no Azure DevOps
+- Build e push da imagem Docker para o Azure Container Registry (ACR)
 
-Crie/garanta os seguintes itens:
+**CD (Continuous Deployment):**
+- Deploy automático no Azure Container Instances (ACI)
+- Execução condicional (só roda se CI passar com sucesso)
+- Provisionamento de Postgres e aplicação Spring Boot
 
-- Service Connection (Docker Registry) apontando para seu ACR
-   - Nome sugerido: `acr-service-connection`
-- Service Connection (Azure Resource Manager) com acesso à subscription
-   - Nome sugerido: `azure-subscription-connection`
-- Variable Group na Library chamado `echobeacon-secrets` com as variáveis (marcar as sensíveis como secret):
-   - `GOOGLE_CLIENT_ID` (secret)
-   - `GOOGLE_CLIENT_SECRET` (secret)
-   - `ADMIN_EMAILS`
-   - `DB_NAME` (ex: `echobeacon`)
-   - `DB_USER` (secret)
-   - `DB_PASSWORD` (secret)
+---
 
-Opcional: ajuste variáveis não secretas via UI (por exemplo `RM`, `AZURE_LOCATION`, `ACR_NAME`).
+### 1️⃣ Pré-requisitos no Azure DevOps
 
-### 2) Conectar o Pipeline ao GitHub
+#### Service Connection do Azure
+Crie uma **Azure Resource Manager Service Connection** com acesso à sua subscription:
+1. Vá em **Project Settings** > **Service Connections** > **New service connection**
+2. Selecione **Azure Resource Manager**
+3. Use **Service Principal (automatic)**
+4. Configure o acesso ao Resource Group ou Subscription
+5. Nomeie como: `echobeacon-az` (ou ajuste a variável `azureServiceConnection` no YAML)
 
-- Pipelines > New pipeline > GitHub > selecione este repositório.
-- Use o arquivo YAML existente `azure-pipelines.yml`.
+#### Variáveis Secretas do Pipeline
+Configure as seguintes variáveis no pipeline (marque como **secret**):
 
-### 3) Disparo e Fluxo
+| Variável | Tipo | Descrição | Exemplo |
+|----------|------|-----------|---------|
+| `GOOGLE_CLIENT_ID` | Secret | ID do cliente OAuth2 Google | `123456789-abc.apps.googleusercontent.com` |
+| `GOOGLE_CLIENT_SECRET` | Secret | Secret do cliente OAuth2 Google | `GOCSPX-xxxxxxxxxxxxx` |
+| `ADMIN_EMAILS` | Secret | E-mails dos administradores | `admin@gmail.com,admin2@gmail.com` |
 
-- CI dispara a cada push em `master` (e também `main`).
-- Passos do CI:
-   - `./gradlew clean test build` (publica resultados de testes)
-   - Publica o JAR como artefato (Azure DevOps)
-   - Build e push da imagem para `$(ACR_NAME).azurecr.io/$(IMAGE_NAME):$(Build.BuildId)` e também `:latest`
-- CD (Deploy_ACI) executa em seguida:
-   - Garante Resource Group
-   - (Se necessário) espelha `postgres:17-alpine` para o ACR
-   - Cria/atualiza container do Postgres no ACI
-   - Cria/atualiza container da aplicação no ACI usando a imagem do CI
+#### Variáveis Opcionais (já têm valores padrão no YAML)
+- `rm`: `556859` (número do RM)
+- `resourceGroup`: `rg-echobeacon-rm$(rm)`
+- `acrName`: `acrechobeaconrm$(rm)`
+- `dockerImageName`: `appcp4`
+- `dockerImageTag`: `latest`
 
-### 4) Variáveis importantes no YAML
+---
 
-- `RM` (padrão `556859`) define sufixos de RG/ACI/ACR
-- `ACR_NAME` = `acrechobeaconrm$(RM)`
-- `RESOURCE_GROUP` = `rg-echobeacon-rm$(RM)`
-- `AZURE_LOCATION` = `eastus`
+### 2️⃣ Conectar o Pipeline ao GitHub
 
-Você pode sobrescrever via UI do pipeline ou diretamente no YAML.
+1. No Azure DevOps, vá em **Pipelines** > **New pipeline**
+2. Selecione **GitHub** como fonte
+3. Selecione este repositório: `GuLopes14/echobeacon-pipelines`
+4. Escolha **Existing Azure Pipelines YAML file**
+5. Selecione `azure-pipelines.yml`
+6. **Save** ou **Run**
 
-### 5) Observações de Segurança
+---
 
-- Não commitar credenciais. Use o Variable Group (secrets).
-- Considere remover valores sensíveis de `scripts/deploy.sh` e usar apenas secrets do Azure DevOps.
+### 3️⃣ Fluxo de Execução do Pipeline
+
+#### Trigger
+- Dispara automaticamente a cada **push** ou **pull request** na branch `main`
+
+#### Stage 1: CI (Continuous Integration)
+```yaml
+Job: Build_Test_Publish
+├── Checkout do código
+├── Instalar JDK 21 (JavaToolInstaller@0)
+├── Build com Gradle@4 (clean build)
+│   └── Executa testes automaticamente
+├── Publicar resultados de testes JUnit
+├── Publicar JAR como artefato (build/libs)
+└── Build e Push da imagem Docker
+    └── Executa scripts/build.sh via AzureCLI@2
+    └── Cria Resource Group + ACR (se não existir)
+    └── Push da imagem: acrechobeaconrm$(rm).azurecr.io/appcp4:latest
+```
+
+#### Stage 2: CD (Continuous Deployment)
+```yaml
+Job: Deploy_ACI (dependsOn: CI)
+├── Checkout do código
+└── Deploy no Azure Container Instances
+    └── Executa scripts/deploy.sh via AzureCLI@2
+    └── Provisiona container PostgreSQL
+    └── Provisiona container da aplicação Spring Boot
+    └── Configura variáveis de ambiente (DB, OAuth2)
+```
+
+---
+
+### 4️⃣ Estrutura de Arquivos do Pipeline
+
+```
+📁 Raiz do Projeto
+├── azure-pipelines.yml        # Pipeline CI/CD principal
+├── scripts/
+│   ├── build.sh               # Script de build e push Docker
+│   ├── deploy.sh              # Script de deploy no ACI
+│   └── deleterg.sh            # Script de limpeza de recursos
+├── gradlew                    # Gradle Wrapper
+└── build.gradle               # Configuração do Gradle
+```
+
+---
+
+### 5️⃣ Variáveis do Pipeline (Referência Completa)
+
+#### Variáveis de Infraestrutura
+```yaml
+azureServiceConnection: 'echobeacon-az'  # Nome da service connection
+vmImage: 'ubuntu-latest'                 # Imagem do agente
+rm: '556859'                             # RM do representante
+resourceGroup: 'rg-echobeacon-rm556859'  # Nome do resource group
+acrName: 'acrechobeaconrm556859'         # Nome do ACR
+```
+
+#### Variáveis de Aplicação
+```yaml
+dockerImageName: 'appcp4'                # Nome da imagem Docker
+dockerImageTag: 'latest'                 # Tag da imagem
+artifactName: 'drop'                     # Nome do artefato publicado
+```
+
+#### Variáveis Secretas (configurar na UI)
+- `GOOGLE_CLIENT_ID`
+- `GOOGLE_CLIENT_SECRET`
+- `ADMIN_EMAILS`
+
+---
+
+### 6️⃣ Monitoramento e Logs
+
+#### Visualizar Execução do Pipeline
+1. Acesse **Pipelines** no Azure DevOps
+2. Clique no pipeline **echobeacon-pipelines**
+3. Visualize os stages CI e CD em tempo real
+
+#### Verificar Artefatos Publicados
+1. Na execução do pipeline, vá em **Published** (topo da página)
+2. Baixe o artefato `drop` contendo o JAR
+
+#### Logs dos Containers no Azure
+```bash
+# Ver logs da aplicação
+az container logs --resource-group rg-echobeacon-rm556859 \
+                  --name aci-app-echobeacon-rm556859
+
+# Ver logs do PostgreSQL
+az container logs --resource-group rg-echobeacon-rm556859 \
+                  --name aci-db-echobeacon-rm556859
+```
+
+---
+
+### 7️⃣ URLs Importantes
+
+Após o deploy bem-sucedido:
+
+- **Aplicação**: `http://aci-app-echobeacon-rm556859.eastus.azurecontainer.io:8080`
+- **Health Check**: `http://aci-app-echobeacon-rm556859.eastus.azurecontainer.io:8080/actuator/health`
+- **Database**: `aci-db-echobeacon-rm556859.eastus.azurecontainer.io:5432`
+
+---
+
+### 8️⃣ Troubleshooting
+
+#### Pipeline falha no JavaToolInstaller
+- Certifique-se de que a task `JavaToolInstaller@0` está disponível
+- Ou use uma imagem de agente com JDK 21 pré-instalado
+
+#### Erro de Service Connection
+```
+Error: No Azure subscription found
+```
+**Solução**: Verifique se a service connection `echobeacon-az` existe e tem permissões adequadas.
+
+#### Erro ao Push da Imagem Docker
+```
+Error: unauthorized: authentication required
+```
+**Solução**: O script `build.sh` faz `az acr login`. Certifique-se de que a service connection tem acesso ao ACR.
+
+#### Container não inicia no ACI
+```bash
+# Ver status do container
+az container show --resource-group rg-echobeacon-rm556859 \
+                  --name aci-app-echobeacon-rm556859 \
+                  --query instanceView.state
+
+# Ver eventos do container
+az container show --resource-group rg-echobeacon-rm556859 \
+                  --name aci-app-echobeacon-rm556859 \
+                  --query instanceView.events
+```
+
+---
+
+### 9️⃣ Melhorias Futuras Sugeridas
+
+- [ ] Adicionar cache do Gradle para builds mais rápidos
+- [ ] Implementar versionamento de imagens por `Build.BuildId`
+- [ ] Adicionar stage de homologação (staging environment)
+- [ ] Implementar health checks automatizados pós-deploy
+- [ ] Adicionar notificações (Slack/Teams) em caso de falha
+- [ ] Implementar rollback automático em caso de falha no deploy
+
+---
+
+### 🔟 Segurança do Pipeline
+
+- ✅ Credenciais armazenadas como secrets no Azure DevOps
+- ✅ Service Principal com permissões mínimas necessárias
+- ✅ Autenticação via Azure CLI (sem exposição de tokens)
+- ✅ Imagens Docker escaneadas antes do deploy (opcional: adicionar Azure Defender)
+- ❌ **Não commitar** valores sensíveis no repositório
 
 ---
 
