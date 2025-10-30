@@ -71,6 +71,7 @@ stages:
               containerRegistry: echobeaconservice556859
           - task: Docker@2
             inputs:
+              containerRegistry: echobeaconservice556859
               command: buildAndPush
               repository: appechobeacon
               tags: |
