@@ -14,6 +14,8 @@ variables:
   DB_NAME: echobeacon
   DB_USER: echobeacon
   DB_PASSWORD: echobeacon
+  # URL de conexão com o banco (FQDN será gerado pelo build.sh)
+  SPRING_DATASOURCE_URL: jdbc:postgresql://aci-db-echobeacon-rm556859.eastus.azurecontainer.io:5432/echobeacon
 
 stages:
   - stage: Build
@@ -81,14 +83,14 @@ stages:
     condition: succeeded()
     jobs:
       - job: Deploy
-        displayName: Deploy App and DB to ACI
+        displayName: Deploy App to ACI
         pool:
           vmImage: 'ubuntu-latest'
         steps:
           - checkout: none
 
           - task: AzureCLI@2
-            displayName: 'Deploy ACI (DB + App)'
+            displayName: 'Deploy Application to ACI'
             inputs:
               azureSubscription: '$(azureSubscription)'
               scriptType: bash
@@ -102,40 +104,14 @@ stages:
                 ACR_USERNAME=$(az acr credential show -n "$(ACR_NAME)" --query username -o tsv)
                 ACR_PASSWORD=$(az acr credential show -n "$(ACR_NAME)" --query "passwords[0].value" -o tsv)
 
-                # Nomes fixos de container e DNS
-                DB_CONTAINER_NAME="aci-db-echobeacon-rm$(RM)"
+                # Nome do container e DNS
                 APP_CONTAINER_NAME="aci-app-echobeacon-rm$(RM)"
-                DB_DNS_LABEL="aci-db-echobeacon-rm$(RM)"
                 APP_DNS_LABEL="aci-app-echobeacon-rm$(RM)"
 
-                # Excluir containers anteriores (para liberar DNS)
-                echo "Cleaning up previous containers if they exist..."
-                az container delete --resource-group "$(RESOURCE_GROUP)" --name "$DB_CONTAINER_NAME" --yes || true
+                # Excluir container anterior (para liberar DNS)
+                echo "Cleaning up previous container if it exists..."
                 az container delete --resource-group "$(RESOURCE_GROUP)" --name "$APP_CONTAINER_NAME" --yes || true
                 sleep 10
-
-                # Criar container do banco
-                echo "Deploying database container: $DB_CONTAINER_NAME"
-                az container create \
-                  --resource-group "$(RESOURCE_GROUP)" \
-                  --name "$DB_CONTAINER_NAME" \
-                  --image "$(ACR_LOGIN_SERVER)/postgres:17-alpine" \
-                  --cpu 1 --memory 2 \
-                  --registry-login-server "$(ACR_LOGIN_SERVER)" \
-                  --registry-username "$ACR_USERNAME" \
-                  --registry-password "$ACR_PASSWORD" \
-                  --environment-variables \
-                    POSTGRES_PASSWORD="$(DB_PASSWORD)" \
-                    POSTGRES_DB="$(DB_NAME)" \
-                    POSTGRES_USER="$(DB_USER)" \
-                  --ports 5432 \
-                  --os-type Linux \
-                  --dns-name-label "$DB_DNS_LABEL" \
-                  --location "$(AZURE_LOCATION)" \
-                  --restart-policy Always
-
-                DB_FQDN=$(az container show --resource-group "$(RESOURCE_GROUP)" --name "$DB_CONTAINER_NAME" --query ipAddress.fqdn -o tsv)
-                echo "DB available at: $DB_FQDN:5432"
 
                 # Criar container da aplicação
                 APP_IMAGE="$(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)"
@@ -150,11 +126,11 @@ stages:
                   --registry-username "$ACR_USERNAME" \
                   --registry-password "$ACR_PASSWORD" \
                   --environment-variables \
-                    SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_FQDN:5432/$(DB_NAME)" \
+                    SPRING_DATASOURCE_URL="$(SPRING_DATASOURCE_URL)" \
                     SPRING_DATASOURCE_USERNAME="$(DB_USER)" \
                     SPRING_DATASOURCE_PASSWORD="$(DB_PASSWORD)" \
                     SPRING_JPA_HIBERNATE_DDL_AUTO=update \
-                    SPRING_FLYWAY_URL="jdbc:postgresql://$DB_FQDN:5432/$(DB_NAME)" \
+                    SPRING_FLYWAY_URL="$(SPRING_DATASOURCE_URL)" \
                     SPRING_FLYWAY_USER="$(DB_USER)" \
                     SPRING_FLYWAY_PASSWORD="$(DB_PASSWORD)" \
                     GOOGLE_CLIENT_ID="$(GOOGLE_CLIENT_ID)" \
