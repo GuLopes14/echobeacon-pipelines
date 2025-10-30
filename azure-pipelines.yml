@@ -1,0 +1,170 @@
+trigger:
+  - main
+
+variables:
+  GRADLE_USER_HOME: $(Pipeline.Workspace)/.gradle
+  AZURE_LOCATION: eastus
+  RESOURCE_GROUP: rg-echobeacon
+  ACR_NAME: acrechobeacon
+  ACR_LOGIN_SERVER: acrechobeacon.azurecr.io
+  IMAGE_NAME: appechobeacon
+  IMAGE_TAG: latest
+  RM: "556859"
+  azureSubscription: AzureEchobeacon
+  DB_NAME: echobeacon
+  DB_USER: echobeacon
+  DB_PASSWORD: echobeacon
+
+stages:
+  - stage: Build
+    displayName: CI (build & tests)
+    jobs:
+      - job: gradleBuild
+        pool:
+          vmImage: ubuntu-latest
+
+        steps:
+          - task: Cache@2
+            inputs:
+              key: 'gradle | "$(Agent.OS)" | **/*.gradle*'
+              restoreKeys: |
+                gradle | "$(Agent.OS)"
+                gradle
+              path: $(GRADLE_USER_HOME)
+            displayName: Configure gradle caching
+
+          - task: Gradle@4
+            inputs:
+              gradleWrapperFile: "gradlew"
+              tasks: "build"
+              options: "--build-cache -Dspring.profiles.active=test -DADMIN_EMAILS=$(ADMIN_EMAILS)"
+              publishJUnitResults: true
+              testResultsFiles: "**/TEST-*.xml"
+              javaHomeOption: "JDKVersion"
+              sonarQubeRunAnalysis: false
+
+          - script: ./gradlew --stop
+            displayName: Gradlew stop
+
+          - task: CopyFiles@2
+            displayName: "Copy Files to artifact staging directory"
+            inputs:
+              SourceFolder: "$(System.DefaultWorkingDirectory)"
+              Contents: "**/build/libs/*SNAPSHOT.jar"
+              TargetFolder: $(Build.ArtifactStagingDirectory)
+
+          - publish: $(Build.ArtifactStagingDirectory)
+            artifact: webapp
+
+      - job: BuildAndPushImage
+        displayName: Build and push docker image
+        pool:
+          vmImage: ubuntu-latest
+        dependsOn: gradleBuild
+        condition: succeeded()
+        steps:
+          - task: Docker@2
+            inputs:
+              command: login
+              containerRegistry: echobeaconservice556859
+          - task: Docker@2
+            inputs:
+              command: buildAndPush
+              repository: appechobeacon
+              tags: |
+                latest
+                $(Build.BuildId)
+
+  - stage: Deploy_ACI
+    displayName: CD - Deploy to Azure Container Instances
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - job: Deploy
+        displayName: Deploy App and DB to ACI
+        pool:
+          vmImage: 'ubuntu-latest'
+        steps:
+          - checkout: none
+
+          - task: AzureCLI@2
+            displayName: 'Deploy ACI (DB + App)'
+            inputs:
+              azureSubscription: '$(azureSubscription)'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                set -euo pipefail
+
+                echo "Using resource group: $(RESOURCE_GROUP) in $(AZURE_LOCATION)"
+
+                # Obter credenciais do ACR existente
+                ACR_USERNAME=$(az acr credential show -n "$(ACR_NAME)" --query username -o tsv)
+                ACR_PASSWORD=$(az acr credential show -n "$(ACR_NAME)" --query "passwords[0].value" -o tsv)
+
+                # Nomes fixos de container e DNS
+                DB_CONTAINER_NAME="aci-db-echobeacon-rm$(RM)"
+                APP_CONTAINER_NAME="aci-app-echobeacon-rm$(RM)"
+                DB_DNS_LABEL="aci-db-echobeacon-rm$(RM)"
+                APP_DNS_LABEL="aci-app-echobeacon-rm$(RM)"
+
+                # Excluir containers anteriores (para liberar DNS)
+                echo "Cleaning up previous containers if they exist..."
+                az container delete --resource-group "$(RESOURCE_GROUP)" --name "$DB_CONTAINER_NAME" --yes || true
+                az container delete --resource-group "$(RESOURCE_GROUP)" --name "$APP_CONTAINER_NAME" --yes || true
+                sleep 10
+
+                # Criar container do banco
+                echo "Deploying database container: $DB_CONTAINER_NAME"
+                az container create \
+                  --resource-group "$(RESOURCE_GROUP)" \
+                  --name "$DB_CONTAINER_NAME" \
+                  --image "$(ACR_LOGIN_SERVER)/postgres:17-alpine" \
+                  --cpu 1 --memory 2 \
+                  --registry-login-server "$(ACR_LOGIN_SERVER)" \
+                  --registry-username "$ACR_USERNAME" \
+                  --registry-password "$ACR_PASSWORD" \
+                  --environment-variables \
+                    POSTGRES_PASSWORD="$(DB_PASSWORD)" \
+                    POSTGRES_DB="$(DB_NAME)" \
+                    POSTGRES_USER="$(DB_USER)" \
+                  --ports 5432 \
+                  --os-type Linux \
+                  --dns-name-label "$DB_DNS_LABEL" \
+                  --location "$(AZURE_LOCATION)" \
+                  --restart-policy Always
+
+                DB_FQDN=$(az container show --resource-group "$(RESOURCE_GROUP)" --name "$DB_CONTAINER_NAME" --query ipAddress.fqdn -o tsv)
+                echo "DB available at: $DB_FQDN:5432"
+
+                # Criar container da aplicação
+                APP_IMAGE="$(ACR_LOGIN_SERVER)/$(IMAGE_NAME):$(IMAGE_TAG)"
+                echo "Deploying application container: $APP_CONTAINER_NAME"
+
+                az container create \
+                  --resource-group "$(RESOURCE_GROUP)" \
+                  --name "$APP_CONTAINER_NAME" \
+                  --image "$APP_IMAGE" \
+                  --cpu 1 --memory 1 \
+                  --registry-login-server "$(ACR_LOGIN_SERVER)" \
+                  --registry-username "$ACR_USERNAME" \
+                  --registry-password "$ACR_PASSWORD" \
+                  --environment-variables \
+                    SPRING_DATASOURCE_URL="jdbc:postgresql://$DB_FQDN:5432/$(DB_NAME)" \
+                    SPRING_DATASOURCE_USERNAME="$(DB_USER)" \
+                    SPRING_DATASOURCE_PASSWORD="$(DB_PASSWORD)" \
+                    SPRING_JPA_HIBERNATE_DDL_AUTO=update \
+                    SPRING_FLYWAY_URL="jdbc:postgresql://$DB_FQDN:5432/$(DB_NAME)" \
+                    SPRING_FLYWAY_USER="$(DB_USER)" \
+                    SPRING_FLYWAY_PASSWORD="$(DB_PASSWORD)" \
+                    GOOGLE_CLIENT_ID="$(GOOGLE_CLIENT_ID)" \
+                    GOOGLE_CLIENT_SECRET="$(GOOGLE_CLIENT_SECRET)" \
+                    ADMIN_EMAILS="$(ADMIN_EMAILS)" \
+                  --ports 8080 \
+                  --os-type Linux \
+                  --dns-name-label "$APP_DNS_LABEL" \
+                  --location "$(AZURE_LOCATION)" \
+                  --restart-policy Always
+
+                APP_URL="http://$APP_DNS_LABEL.$(AZURE_LOCATION).azurecontainer.io:8080"
+                echo "✅ Application deployed at: $APP_URL"
