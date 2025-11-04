@@ -41,7 +41,7 @@ Essa solução visa resolver o problema de localizar rapidamente as motos no pá
 
 ## 📽️ Link para o vídeo da explicação
 
-- [Vídeo explicativo](https://youtu.be/8kSp6ySZqR0)
+- [Vídeo explicativo](https://www.youtube.com/watch?v=JHqJ7gNTkQo)
 
 ## 🚀 Tecnologias Utilizadas
 
