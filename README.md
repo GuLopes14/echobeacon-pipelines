@@ -2,8 +2,6 @@
 
 O projeto **Echo Beacon** foi desenvolvido para a empresa **Mottu** com o objetivo de implementar uma solução tecnológica que melhore a organização e localização das motos no pátio da empresa; a solução integra hardware, software e banco de dados para facilitar a gestão e identificação de veículos de forma eficiente.
 
-Oi professor
-
 ---
 
 # 👔 Integrantes
