@@ -70,11 +70,4 @@ az container create \
 # Obter FQDN do banco
 DB_FQDN=$(az container show --resource-group "$RG_NAME" --name "$DB_CONTAINER_NAME" --query ipAddress.fqdn -o tsv)
 
-echo ""
 echo "✅ Banco de dados criado com sucesso!"
-echo "URL do banco: jdbc:postgresql://${DB_FQDN}:5432/${DB_NAME}"
-echo "Usuário: ${DB_USER}"
-echo "Senha: ${DB_PASSWORD}"
-echo ""
-echo "Configure a variável SPRING_DATASOURCE_URL no Azure DevOps:"
-echo "jdbc:postgresql://${DB_FQDN}:5432/${DB_NAME}"
