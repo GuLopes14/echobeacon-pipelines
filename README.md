@@ -39,10 +39,6 @@ Essa solução visa resolver o problema de localizar rapidamente as motos no pá
 
 ![Diagrama de Fluxo da Aplicação](images/diagramadevops.png)
 
-## 📽️ Link para o vídeo da explicação
-
-- [Vídeo explicativo](https://www.youtube.com/watch?v=JHqJ7gNTkQo)
-
 ## 🚀 Tecnologias Utilizadas
 
 - **Backend**: Java 21 com Spring Boot 3.5.5
