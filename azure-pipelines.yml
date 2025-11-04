@@ -125,11 +125,11 @@ stages:
                   --environment-variables \
                     SPRING_DATASOURCE_URL="$(SPRING_DATASOURCE_URL)" \
                     SPRING_DATASOURCE_USERNAME="$(DB_USER)" \
-                    SPRING_DATASOURCE_PASSWORD="$(DB_PASSWORD)" \
+                    SPRING_DATASOURCE_PASSWORD="$DB_PASSWORD" \
                     SPRING_JPA_HIBERNATE_DDL_AUTO=update \
                     SPRING_FLYWAY_URL="$(SPRING_DATASOURCE_URL)" \
                     SPRING_FLYWAY_USER="$(DB_USER)" \
-                    SPRING_FLYWAY_PASSWORD="$(DB_PASSWORD)" \
+                    SPRING_FLYWAY_PASSWORD="$DB_PASSWORD" \
                     GOOGLE_CLIENT_ID="$(GOOGLE_CLIENT_ID)" \
                     GOOGLE_CLIENT_SECRET="$(GOOGLE_CLIENT_SECRET)" \
                     ADMIN_EMAILS="$(ADMIN_EMAILS)" \
@@ -137,7 +137,8 @@ stages:
                   --os-type Linux \
                   --dns-name-label "$APP_DNS_LABEL" \
                   --location "$(AZURE_LOCATION)" \
-                  --restart-policy Always
+                  --restart-policy never
 
                 APP_URL="http://$APP_DNS_LABEL.$(AZURE_LOCATION).azurecontainer.io:8080"
                 echo "✅ Application deployed at: $APP_URL"
+                
